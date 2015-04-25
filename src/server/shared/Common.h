@@ -123,7 +123,7 @@ enum LocaleConstant
 };
 
 const uint8 OLD_TOTAL_LOCALES = 9; /// @todo convert in simple system
-#define DEFAULT_LOCALE LOCALE_enUS
+#define DEFAULT_LOCALE LOCALE_zhCN
 
 #define MAX_LOCALES 11
 

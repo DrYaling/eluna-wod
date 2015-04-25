@@ -596,6 +596,26 @@ typedef std::unordered_map<uint32, TrainerSpellData> CacheTrainerSpellContainer;
 typedef std::unordered_map<uint8, uint8> ExpansionRequirementContainer;
 typedef std::unordered_map<uint32, std::string> RealmNameContainer;
 
+struct CharcterTemplateClass
+{
+    CharcterTemplateClass(uint8 factionGroup, uint8 classID) :
+        FactionGroup(factionGroup), ClassID(classID) { }
+
+    uint8 FactionGroup;
+    uint8 ClassID;
+};
+
+struct CharacterTemplate
+{
+    uint32 TemplateSetId;
+    std::vector<CharcterTemplateClass> Classes;
+    std::string Name;
+    std::string Description;
+    uint8 Level;
+};
+
+typedef std::unordered_map<uint32, CharacterTemplate> CharacterTemplateContainer;
+
 enum SkillRangeType
 {
     SKILL_RANGE_LANGUAGE,                                   // 300..300
@@ -687,6 +707,7 @@ class ObjectMgr
         typedef std::unordered_map<uint32, ReputationOnKillEntry> RepOnKillContainer;
         typedef std::unordered_map<uint32, RepSpilloverTemplate> RepSpilloverTemplateContainer;
 
+		typedef std::unordered_map<uint32, ItemLocale> ItemLocaleContainer;
         typedef std::unordered_map<uint32, PointOfInterest> PointOfInterestContainer;
 
         typedef std::vector<std::string> ScriptNameContainer;
@@ -745,6 +766,12 @@ class ObjectMgr
         }
         CreatureQuestItemMap const* GetCreatureQuestItemMap() const { return &_creatureQuestItemStore; }
 
+		ItemLocale const* GetItemLocale(uint32 entry) const
+		{
+			ItemLocaleContainer::const_iterator itr = _itemLocaleStore.find(entry);
+			if (itr == _itemLocaleStore.end()) return NULL;
+			return &itr->second;
+		}
         /**
         * Retrieves the player name by guid.
         *
@@ -1282,11 +1309,13 @@ class ObjectMgr
         void LoadFactionChangeQuests();
         void LoadFactionChangeReputations();
         void LoadFactionChangeSpells();
-        void LoadFactionChangeTitles();
+		void LoadFactionChangeTitles();
+		void LoadItemLocales();
 
         bool IsTransportMap(uint32 mapId) const { return _transportMaps.count(mapId) != 0; }
 
         void LoadRaceAndClassExpansionRequirements();
+        void LoadCharacterTemplates();
         void LoadRealmNames();
 
         std::string GetRealmName(uint32 realm) const;
@@ -1309,6 +1338,16 @@ class ObjectMgr
             return EXPANSION_CLASSIC;
         }
 
+        CharacterTemplateContainer const& GetCharacterTemplates() const { return _characterTemplateStore; }
+        CharacterTemplate const* GetCharacterTemplate(uint32 id) const 
+        {
+            auto itr = _characterTemplateStore.find(id);
+            if (itr != _characterTemplateStore.end())
+                return &itr->second;
+
+            return nullptr;
+        }
+
     private:
         // first free id for selected id type
         uint32 _auctionId;
@@ -1318,6 +1357,19 @@ class ObjectMgr
         uint32 _hiPetNumber;
         uint64 _voidItemId;
 
+		// first free low guid for selected guid type
+		uint32 _hiCharGuid;
+		uint32 _hiCreatureGuid;
+		uint32 _hiPetGuid;
+		uint32 _hiVehicleGuid;
+		uint32 _hiItemGuid;
+		uint32 _hiGoGuid;
+		uint32 _hiDoGuid;
+		uint32 _hiCorpseGuid;
+		uint32 _hiAreaTriggerGuid;
+		uint32 _hiMoTransGuid;
+
+		QuestMap _questTemplates;
         // first free low guid for selected guid type
         ObjectGuidGenerator<HighGuid::Player> _playerGuidGenerator;
         ObjectGuidGenerator<HighGuid::Creature> _creatureGuidGenerator;
@@ -1331,7 +1383,7 @@ class ObjectMgr
         ObjectGuidGenerator<HighGuid::AreaTrigger> _areaTriggerGuidGenerator;
         ObjectGuidGenerator<HighGuid::Transport> _moTransportGuidGenerator;
 
-        QuestMap _questTemplates;
+     //   QuestMap _questTemplates;
 
         typedef std::unordered_map<uint32, NpcText> NpcTextContainer;
         typedef std::unordered_map<uint32, uint32> QuestAreaTriggerContainer;
@@ -1419,6 +1471,7 @@ class ObjectMgr
         typedef std::map<uint32, StringVector> HalfNameContainer;
         HalfNameContainer _petHalfName0;
         HalfNameContainer _petHalfName1;
+		
 
         MapObjectGuids _mapObjectGuidsStore;
         CreatureDataContainer _creatureDataStore;
@@ -1445,7 +1498,8 @@ class ObjectMgr
         GossipMenuItemsLocaleContainer _gossipMenuItemsLocaleStore;
         PointOfInterestLocaleContainer _pointOfInterestLocaleStore;
 
-        TrinityStringContainer _trinityStringStore;
+		TrinityStringContainer _trinityStringStore;
+		ItemLocaleContainer _itemLocaleStore;
 
         CacheVendorItemContainer _cacheVendorItemStore;
         CacheTrainerSpellContainer _cacheTrainerSpellStore;
@@ -1456,6 +1510,8 @@ class ObjectMgr
         ExpansionRequirementContainer _raceExpansionRequirementStore;
         ExpansionRequirementContainer _classExpansionRequirementStore;
         RealmNameContainer _realmNameStore;
+
+        CharacterTemplateContainer _characterTemplateStore;
 
         enum CreatureLinkedRespawnType
         {

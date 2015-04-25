@@ -88,6 +88,14 @@ class DBCStorage
 
         T const* LookupEntry(uint32 id) const
         {
+#ifdef ELUNA
+            if (loaded)
+            {
+                typename std::map<uint32, T const*>::const_iterator it = data.find(id);
+                if (it != data.end())
+                    return it->second;
+            }
+#endif
             return (id >= nCount) ? NULL : indexTable.asT[id];
         }
 
@@ -98,7 +106,11 @@ class DBCStorage
             return entry;
         }
 
+#ifdef ELUNA
+        uint32 GetNumRows() const { return loaded ? data.size() : nCount; }
+#else
         uint32  GetNumRows() const { return nCount; }
+#endif
         char const* GetFormat() const { return fmt; }
         uint32 GetFieldCount() const { return fieldCount; }
 
@@ -283,6 +295,14 @@ class DBCStorage
 
         void Clear()
         {
+#ifdef ELUNA
+            if (loaded)
+            {
+                data.clear();
+                loaded = false;
+            }
+#endif
+
             if (!indexTable.asT)
                 return;
 
@@ -320,6 +340,11 @@ class DBCStorage
 
         DBCStorage(DBCStorage const& right) = delete;
         DBCStorage& operator=(DBCStorage const& right) = delete;
+
+#ifdef ELUNA
+        std::map<uint32, T const*> data;
+        bool loaded;
+#endif
 };
 
 #endif

@@ -38,6 +38,9 @@
 #include "Vehicle.h"
 #include "VMapFactory.h"
 #include "Weather.h"
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 
 u_map_magic MapMagic        = { {'M','A','P','S'} };
 u_map_magic MapVersionMagic = { {'v','1','.','4'} };
@@ -2613,6 +2616,13 @@ void Map::DelayedUpdate(const uint32 t_diff)
 void Map::AddObjectToRemoveList(WorldObject* obj)
 {
     ASSERT(obj->GetMapId() == GetId() && obj->GetInstanceId() == GetInstanceId());
+
+#ifdef ELUNA
+    if (Creature* creature = obj->ToCreature())
+        sEluna->OnRemove(creature);
+    else if (GameObject* gameobject = obj->ToGameObject())
+        sEluna->OnRemove(gameobject);
+#endif
 
     obj->CleanupsBeforeDelete(false);                            // remove or simplify at least cross referenced links
 

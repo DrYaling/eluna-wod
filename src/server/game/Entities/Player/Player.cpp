@@ -98,7 +98,9 @@
 #include "LootPackets.h"
 #include "TradePackets.h"
 #include "VehiclePackets.h"
-
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
 
 // corpse reclaim times
@@ -4736,6 +4738,10 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 
     // update visibility
     UpdateObjectVisibility();
+
+#ifdef ELUNA
+    sEluna->OnResurrect(this);
+#endif
 
     if (!applySickness)
         return;
@@ -11418,6 +11424,11 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
         if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
             if (HasSpell(proto->Effects[1]->SpellID))
                 return EQUIP_ERR_INTERNAL_BAG_ERROR;
+#ifdef ELUNA
+    InventoryResult eres = sEluna->OnCanUseItem(this, proto->BasicData->ID);
+    if (eres != EQUIP_ERR_OK)
+        return eres;
+#endif
 
     return EQUIP_ERR_OK;
 }
@@ -11785,6 +11796,9 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 
         ApplyEquipCooldown(pItem2);
 
+#ifdef ELUNA
+        sEluna->OnEquip(this, pItem2, bag, slot);
+#endif
         return pItem2;
     }
 
@@ -11792,6 +11806,9 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_ITEM, pItem->GetEntry());
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_EPIC_ITEM, pItem->GetEntry(), slot);
 
+#ifdef ELUNA
+        sEluna->OnEquip(this, pItem, bag, slot);
+#endif
     return pItem;
 }
 
@@ -11813,6 +11830,10 @@ void Player::QuickEquipItem(uint16 pos, Item* pItem)
 
         UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_ITEM, pItem->GetEntry());
         UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_EPIC_ITEM, pItem->GetEntry(), slot);
+
+#ifdef ELUNA
+        sEluna->OnEquip(this, pItem, (pos >> 8), slot);
+#endif
     }
 }
 
@@ -24212,7 +24233,7 @@ bool Player::CanCaptureTowerPoint()
             IsAlive());                                     // live player
 }
 
-uint32 Player::GetBarberShopCost(uint8 newhairstyle, uint8 newhaircolor, uint8 newfacialhair, BarberShopStyleEntry const* newSkin)
+uint32 Player::GetBarberShopCost(BarberShopStyleEntry const* newHairStyle, uint8 newHairColor, BarberShopStyleEntry const* newFacialHair, BarberShopStyleEntry const* newSkin /*= nullptr*/, BarberShopStyleEntry const* newFace /*= nullptr*/)
 {
     uint8 level = getLevel();
 
@@ -24223,30 +24244,33 @@ uint32 Player::GetBarberShopCost(uint8 newhairstyle, uint8 newhaircolor, uint8 n
     uint8 haircolor = GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_COLOR_ID);
     uint8 facialhair = GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE);
     uint8 skincolor = GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID);
+    uint8 face = GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID);
 
-    if ((hairstyle == newhairstyle) && (haircolor == newhaircolor) && (facialhair == newfacialhair) && (!newSkin || (newSkin->Data == skincolor)))
+    if ((hairstyle == newHairStyle->Data) && (haircolor == newHairColor) && (facialhair == newFacialHair->Data) && (!newSkin || (newSkin->Data == skincolor)) && (!newFace || (newFace->Data == face)))
         return 0;
 
     GtBarberShopCostBaseEntry const* bsc = sGtBarberShopCostBaseStore.EvaluateTable(level - 1, 0);
-
     if (!bsc)                                                // shouldn't happen
         return 0xFFFFFFFF;
 
-    float cost = 0;
+    uint32 cost = 0;
 
-    if (hairstyle != newhairstyle)
-        cost += bsc->cost;                                  // full price
+    if (hairstyle != newHairStyle->Data)
+        cost += uint32(bsc->cost * newHairStyle->CostModifier);
 
-    if ((haircolor != newhaircolor) && (hairstyle == newhairstyle))
-        cost += bsc->cost * 0.5f;                           // +1/2 of price
+    if ((haircolor != newHairColor) && (hairstyle == newHairStyle->Data))
+        cost += uint32(bsc->cost * 0.5f);                    // +1/2 of price
 
-    if (facialhair != newfacialhair)
-        cost += bsc->cost * 0.75f;                          // +3/4 of price
+    if (facialhair != newFacialHair->Data)
+        cost += uint32(bsc->cost * newFacialHair->CostModifier);
 
     if (newSkin && skincolor != newSkin->Data)
-        cost += bsc->cost * 0.75f;                          // +5/6 of price
+        cost += uint32(bsc->cost * newSkin->CostModifier);
 
-    return uint32(cost);
+    if (newFace && face != newFace->Data)
+        cost += uint32(bsc->cost * newFace->CostModifier);
+
+    return cost;
 }
 
 void Player::InitGlyphsForLevel()
@@ -24642,6 +24666,10 @@ void Player::StoreLootItem(uint8 lootSlot, Loot* loot)
         // LootItem is being removed (looted) from the container, delete it from the DB.
         if (!loot->containerID.IsEmpty())
             loot->DeleteLootItemFromContainerItemDB(item->itemid);
+
+#ifdef ELUNA
+ //TODO       sEluna->OnLootItem(this, newitem, item->count, this->GetLootGUID().GetCounter());
+#endif
     }
     else
         SendEquipError(msg, NULL, NULL, item->itemid);
@@ -25019,6 +25047,11 @@ bool Player::LearnTalent(uint32 talentId)
 
     TC_LOG_DEBUG("misc", "TalentID: %u Spell: %u Group: %u\n", talentId, spellid, GetActiveTalentGroup());
 
+    // set talent tree for player
+ 
+#ifdef ELUNA
+//TODO    sEluna->OnLearnTalents(this, talentId, talentRank, spellid);
+#endif
     return true;
 }
 

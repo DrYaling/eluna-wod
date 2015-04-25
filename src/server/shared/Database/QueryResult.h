@@ -42,7 +42,12 @@ class ResultSet
         {
             ASSERT(index < _fieldCount);
             return _currentRow[index];
-        }
+		}
+		char* GetFieldName(uint32 index)
+		{
+			ASSERT(index < _fieldCount);
+			return _fields[index].name;
+		}
 
     protected:
         uint64 _rowCount;

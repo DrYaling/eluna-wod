@@ -69,7 +69,9 @@
 #include "WorldSocket.h"
 
 #include <boost/algorithm/string.hpp>
-
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 std::atomic<bool> World::m_stopEvent(false);
 uint8 World::m_ExitCode = SHUTDOWN_EXIT_CODE;
 std::atomic<uint32> World::m_worldLoopCounter(0);
@@ -1455,6 +1457,12 @@ void World::SetInitialWorldSettings()
         exit(1);
     }
 
+#ifdef ELUNA
+    ///- Initialize Lua Engine
+    TC_LOG_INFO("server.loading", "Initialize Eluna Lua Engine...");
+    Eluna::Initialize();
+#endif
+
     ///- Initialize pool manager
     sPoolMgr->Initialize();
 
@@ -2028,8 +2036,18 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading race and class expansion requirements...");
     sObjectMgr->LoadRaceAndClassExpansionRequirements();
 
+    TC_LOG_INFO("server.loading", "Loading character templates...");
+    sObjectMgr->LoadCharacterTemplates();
+
     TC_LOG_INFO("server.loading", "Loading realm names...");
     sObjectMgr->LoadRealmNames();
+
+#ifdef ELUNA
+    ///- Run eluna scripts.
+    // in multithread foreach: run scripts
+    sEluna->RunScripts();
+    sEluna->OnConfigLoad(false); // Must be done after Eluna is initialized and scripts have run.
+#endif
 
     uint32 startupDuration = GetMSTimeDiffToNow(startupBegin);
 

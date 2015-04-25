@@ -8814,7 +8814,35 @@ void ObjectMgr::LoadFactionChangeSpells()
 
     TC_LOG_INFO("server.loading", ">> Loaded %u faction change spell pairs in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
+void ObjectMgr::LoadItemLocales()
+{
+	uint32 oldMSTime = getMSTime();
 
+	_itemLocaleStore.clear();                                 // need for reload case
+
+	QueryResult result = WorldDatabase.Query("SELECT entry, name_loc1, description_loc1, name_loc2, description_loc2, name_loc3, description_loc3, name_loc4, description_loc4, name_loc5, description_loc5, name_loc6, description_loc6, name_loc7, description_loc7, name_loc8, description_loc8 FROM locales_item");
+
+	if (!result)
+		return;
+
+	do
+	{
+		Field* fields = result->Fetch();
+
+		uint32 entry = fields[0].GetUInt32();
+
+		ItemLocale& data = _itemLocaleStore[entry];
+
+		for (uint8 i = TOTAL_LOCALES - 1; i > 0; --i)
+		{
+			LocaleConstant locale = (LocaleConstant)i;
+			AddLocaleString(fields[1 + 2 * (i - 1)].GetString(), locale, data.Name);
+			AddLocaleString(fields[1 + 2 * (i - 1) + 1].GetString(), locale, data.Description);
+		}
+	} while (result->NextRow());
+
+	TC_LOG_INFO("server.loading", ">> Loaded %u Item locale strings in %u ms", uint32(_itemLocaleStore.size()), GetMSTimeDiffToNow(oldMSTime));
+}
 void ObjectMgr::LoadFactionChangeTitles()
 {
     uint32 oldMSTime = getMSTime();
@@ -9131,6 +9159,81 @@ void ObjectMgr::LoadRaceAndClassExpansionRequirements()
     }
     else
         TC_LOG_INFO("server.loading", ">> Loaded 0 class expansion requirements. DB table `class_expansion_requirement` is empty.");
+}
+
+void ObjectMgr::LoadCharacterTemplates()
+{
+    uint32 oldMSTime = getMSTime();
+    _characterTemplateStore.clear();
+
+    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TEMPLATES);
+    PreparedQueryResult templates = CharacterDatabase.Query(stmt);
+
+    if (!templates)
+    {
+        TC_LOG_INFO("server.loading", ">> Loaded 0 character templates. DB table `character_template` is empty.");
+        return;
+    }
+
+    PreparedQueryResult classes;
+    uint32 count = 0;
+
+    do
+    {
+        Field* fields = templates->Fetch();
+
+        uint32 templateSetId = fields[0].GetUInt32();
+
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TEMPLATE_CLASSES);
+        stmt->setUInt32(0, templateSetId);
+        classes = CharacterDatabase.Query(stmt);
+
+        if (classes)
+        {
+            CharacterTemplate templ;
+            templ.TemplateSetId = templateSetId;
+            templ.Name = fields[1].GetString();
+            templ.Description = fields[2].GetString();
+            templ.Level = fields[3].GetUInt8();
+
+            do
+            {
+                fields = classes->Fetch();
+
+                uint8 factionGroup = fields[0].GetUInt8();
+                uint8 classID = fields[1].GetUInt8();
+
+                if (!((factionGroup & (FACTION_MASK_PLAYER | FACTION_MASK_ALLIANCE)) == (FACTION_MASK_PLAYER | FACTION_MASK_ALLIANCE)) && 
+                    !((factionGroup & (FACTION_MASK_PLAYER | FACTION_MASK_HORDE)) == (FACTION_MASK_PLAYER | FACTION_MASK_HORDE)))
+                {
+                    TC_LOG_ERROR("sql.sql", "Faction group %u defined for character template %u in `character_template_class` is invalid. Skipped.", factionGroup, templateSetId);
+                    continue;
+                }
+
+                ChrClassesEntry const* classEntry = sChrClassesStore.LookupEntry(classID);
+                if (!classEntry)
+                {
+                    TC_LOG_ERROR("sql.sql", "Class %u defined for character template %u in `character_template_class` does not exists, skipped.", classID, templateSetId);
+                    continue;
+                }
+
+                templ.Classes.emplace_back(factionGroup, classID);
+
+            } while (classes->NextRow());
+
+            if (!templ.Classes.empty())
+            {
+                _characterTemplateStore[templateSetId] = templ;
+                ++count;
+            }
+        }
+        else
+        {
+            TC_LOG_ERROR("sql.sql", "Character template %u does not have any classes defined in `character_template_class`. Skipped.", templateSetId);
+            continue;
+        }
+    } while (templates->NextRow());
+    TC_LOG_INFO("server.loading", ">> Loaded %u character templates in %u ms.", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
 void ObjectMgr::LoadRealmNames()

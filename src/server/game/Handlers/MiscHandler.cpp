@@ -60,7 +60,9 @@
 #include "NPCPackets.h"
 #include "AchievementPackets.h"
 #include "WhoPackets.h"
-
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 void WorldSession::HandleRepopRequest(WorldPackets::Misc::RepopRequest& /*packet*/)
 {
     TC_LOG_DEBUG("network", "WORLD: Recvd CMSG_REPOP_REQUEST Message");
@@ -83,6 +85,10 @@ void WorldSession::HandleRepopRequest(WorldPackets::Misc::RepopRequest& /*packet
         GetPlayer()->KillPlayer();
     }
 
+#ifdef ELUNA
+    sEluna->OnRepop(GetPlayer());
+#endif
+
     //this is spirit release confirm?
     GetPlayer()->RemovePet(NULL, PET_SAVE_NOT_IN_SLOT, true);
     GetPlayer()->BuildPlayerRepop();
@@ -91,22 +97,30 @@ void WorldSession::HandleRepopRequest(WorldPackets::Misc::RepopRequest& /*packet
 
 void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::NPC::GossipSelectOption& packet)
 {
+
+	std::string code = packet.PromotionCode;
+	uint32 gossipListId=packet.GossipID;
+	uint32 menuId = packet.GossipIndex;
+	ObjectGuid guid = packet.GossipUnit;
     if (!_player->PlayerTalkClass->GetGossipMenu().GetItem(packet.GossipIndex))
         return;
 
     // Prevent cheating on C++ scripted menus
     if (_player->PlayerTalkClass->GetGossipMenu().GetSenderGUID() != packet.GossipUnit)
         return;
-
-    Creature* unit = nullptr;
-    GameObject* go = nullptr;
-    if (packet.GossipUnit.IsCreatureOrVehicle())
+    
+#ifdef ELUNA
+    Item* item = NULL;
+#endif
+    Creature* unit = NULL;
+    GameObject* go = NULL;
+	if (packet.GossipUnit.IsCreatureOrVehicle())
     {
         unit = GetPlayer()->GetNPCIfCanInteractWith(packet.GossipUnit, UNIT_NPC_FLAG_NONE);
         if (!unit)
         {
 
-            TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with him.", packet.GossipUnit.ToString().c_str());
+//            TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with him.", packet.GossipUnit.ToString().c_str());
             return;
         }
     }
@@ -115,10 +129,29 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::NPC::GossipSelec
         go = _player->GetMap()->GetGameObject(packet.GossipUnit);
         if (!go)
         {
-            TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", packet.GossipUnit.ToString().c_str());
+ //           TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", packet.GossipUnit.ToString().c_str());
             return;
         }
     }
+#ifdef ELUNA
+    else if (packet.GossipUnit.IsItem())
+    {
+		item = _player->GetItemByGuid(packet.GossipUnit);
+        if (!item)
+        {
+   //         TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", guid.ToString().c_str());
+            return;
+        }
+    }
+    else if (packet.GossipUnit.IsPlayer())
+    {
+		if (_player->GetGUID() != packet.GossipUnit)
+        {
+ //           TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOptionOpcode - %s not found.", guid.ToString().c_str());
+            return;
+        }
+    }
+#endif
     else
     {
 
@@ -150,6 +183,16 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::NPC::GossipSelec
             if (!sScriptMgr->OnGossipSelectCode(_player, unit, _player->PlayerTalkClass->GetGossipOptionSender(packet.GossipIndex), _player->PlayerTalkClass->GetGossipOptionAction(packet.GossipIndex), packet.PromotionCode.c_str()))
                 _player->OnGossipSelect(unit, packet.GossipIndex, packet.GossipID);
         }
+#ifdef ELUNA
+        else if (item)
+        {
+            sEluna->HandleGossipSelectOption(GetPlayer(), item, GetPlayer()->PlayerTalkClass->GetGossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GetGossipOptionAction(gossipListId), code);
+        }
+        else if (_player->GetGUID() == packet.GossipUnit && menuId == _player->PlayerTalkClass->GetGossipMenu().GetMenuId())
+        {
+            sEluna->HandleGossipSelectOption(GetPlayer(), menuId, GetPlayer()->PlayerTalkClass->GetGossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GetGossipOptionAction(gossipListId), code);
+        }
+#endif
         else
         {
             go->AI()->GossipSelectCode(_player, packet.GossipID, packet.GossipIndex, packet.PromotionCode.c_str());
@@ -165,6 +208,16 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::NPC::GossipSelec
             if (!sScriptMgr->OnGossipSelect(_player, unit, _player->PlayerTalkClass->GetGossipOptionSender(packet.GossipIndex), _player->PlayerTalkClass->GetGossipOptionAction(packet.GossipIndex)))
                 _player->OnGossipSelect(unit, packet.GossipIndex, packet.GossipID);
         }
+#ifdef ELUNA
+        else if (_player->GetGUID() == guid && menuId == _player->PlayerTalkClass->GetGossipMenu().GetMenuId())
+        {
+            sEluna->HandleGossipSelectOption(GetPlayer(), menuId, GetPlayer()->PlayerTalkClass->GetGossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GetGossipOptionAction(gossipListId), code);
+        }
+        else if (item)
+        {
+            sEluna->HandleGossipSelectOption(GetPlayer(), item, GetPlayer()->PlayerTalkClass->GetGossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GetGossipOptionAction(gossipListId), code);
+        }
+#endif
         else
         {
             go->AI()->GossipSelect(_player, packet.GossipID, packet.GossipIndex);

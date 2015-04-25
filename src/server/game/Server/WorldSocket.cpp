@@ -25,6 +25,9 @@
 #include "ScriptMgr.h"
 #include "SHA1.h"
 #include "PacketLog.h"
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 #include "BattlenetAccountMgr.h"
 #include "World.h"
 #include <zlib.h>
@@ -270,14 +273,25 @@ bool WorldSocket::ReadDataHandler()
             }
             case CMSG_KEEP_ALIVE:
                 LogOpcodeText(opcode, sessionGuard);
+#ifdef ELUNA
+                if (!sEluna->OnPacketReceive(_worldSession, packet))
+                    break;
+#endif
                 break;
             case CMSG_LOG_DISCONNECT:
                 LogOpcodeText(opcode, sessionGuard);
                 packet.rfinish();   // contains uint32 disconnectReason;
+#ifdef ELUNA
+                sEluna->OnPacketReceive(_worldSession, packet);
+#endif
                 return true;
             case CMSG_ENABLE_NAGLE:
                 LogOpcodeText(opcode, sessionGuard);
                 SetNoDelay(false);
+#ifdef ELUNA
+         //       if (!sEluna->OnPacketReceive(_worldSession, packet))
+         //           break;
+#endif
                 break;
             case CMSG_CONNECT_TO_FAILED:
             {

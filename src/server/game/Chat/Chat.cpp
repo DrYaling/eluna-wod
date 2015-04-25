@@ -37,7 +37,9 @@
 #include "ChatLink.h"
 #include "Guild.h"
 #include "Group.h"
-
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 bool ChatHandler::load_command_table = true;
 
 // get number of commands in table
@@ -290,6 +292,11 @@ bool ChatHandler::ExecuteCommandInTable(ChatCommand* table, const char* text, st
         {
             if (!ExecuteCommandInTable(table[i].ChildCommands, text, fullcmd))
             {
+#ifdef ELUNA
+                if (!sEluna->OnCommand(GetSession() ? GetSession()->GetPlayer() : NULL, oldtext))
+                    return true;
+#endif
+
                 if (text[0] != '\0')
                     SendSysMessage(LANG_NO_SUBCMD);
                 else
@@ -435,6 +442,11 @@ bool ChatHandler::ParseCommands(char const* text)
 
     if (!ExecuteCommandInTable(getCommandTable(), text, fullcmd))
     {
+#ifdef ELUNA
+        if (!sEluna->OnCommand(GetSession() ? GetSession()->GetPlayer() : NULL, text))
+            return true;
+#endif
+
         if (m_session && !m_session->HasPermission(rbac::RBAC_PERM_COMMANDS_NOTIFY_COMMAND_NOT_FOUND_ERROR))
             return false;
 
@@ -539,6 +551,134 @@ bool ChatHandler::ShowHelpForSubCommands(ChatCommand* table, char const* cmd, ch
         PSendSysMessage(LANG_SUBCMDS_LIST, cmd, list.c_str());
 
     return true;
+}
+
+size_t ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg chatType, Language language, ObjectGuid senderGUID, ObjectGuid receiverGUID, std::string const& message, uint8 chatTag,
+	std::string const& senderName /*= ""*/, std::string const& receiverName /*= ""*/,
+	uint32 achievementId /*= 0*/, bool gmMessage /*= false*/, std::string const& channelName /*= ""*/,
+	std::string const& addonPrefix /*= ""*/)
+{
+	size_t receiverGUIDPos = 0;
+	data.Initialize(!gmMessage ? 0x2026 : 0x6434);//TODO
+	data << uint8(chatType);
+	data << int32(language);
+	data << uint64(senderGUID.GetCounter());
+	data << uint32(0);  // some flags
+	switch (chatType)
+	{
+	case CHAT_MSG_MONSTER_SAY:
+	case CHAT_MSG_MONSTER_PARTY:
+	case CHAT_MSG_MONSTER_YELL:
+	case CHAT_MSG_MONSTER_WHISPER:
+	case CHAT_MSG_MONSTER_EMOTE:
+	case CHAT_MSG_RAID_BOSS_EMOTE:
+	case CHAT_MSG_RAID_BOSS_WHISPER:
+	case CHAT_MSG_BATTLENET:
+		data << uint32(senderName.length() + 1);
+		data << senderName;
+		receiverGUIDPos = data.wpos();
+		data << uint64(receiverGUID.GetCounter());
+		if (receiverGUID.GetCounter() && !receiverGUID.IsPlayer() && !receiverGUID.IsPet())
+		{
+			data << uint32(receiverName.length() + 1);
+			data << receiverName;
+		}
+
+		if (language == LANG_ADDON)
+			data << addonPrefix;
+		break;
+	case CHAT_MSG_WHISPER_FOREIGN:
+		data << uint32(senderName.length() + 1);
+		data << senderName;
+		receiverGUIDPos = data.wpos();
+		data << uint64(receiverGUID.GetCounter());
+		if (language == LANG_ADDON)
+			data << addonPrefix;
+		break;
+	case CHAT_MSG_BG_SYSTEM_NEUTRAL:
+	case CHAT_MSG_BG_SYSTEM_ALLIANCE:
+	case CHAT_MSG_BG_SYSTEM_HORDE:
+		receiverGUIDPos = data.wpos();
+		data << uint64(receiverGUID.GetCounter());
+		if (receiverGUID.GetCounter() && !receiverGUID.IsPlayer())
+		{
+			data << uint32(receiverName.length() + 1);
+			data << receiverName;
+		}
+
+		if (language == LANG_ADDON)
+			data << addonPrefix;
+		break;
+	case CHAT_MSG_ACHIEVEMENT:
+	case CHAT_MSG_GUILD_ACHIEVEMENT:
+		receiverGUIDPos = data.wpos();
+		data << uint64(receiverGUID.GetCounter());
+		if (language == LANG_ADDON)
+			data << addonPrefix;
+		break;
+	default:
+		if (gmMessage)
+		{
+			data << uint32(senderName.length() + 1);
+			data << senderName;
+		}
+
+		if (chatType == CHAT_MSG_CHANNEL)
+		{
+			ASSERT(channelName.length() > 0);
+			data << channelName;
+		}
+
+		receiverGUIDPos = data.wpos();
+		data << uint64(receiverGUID.GetCounter());
+
+		if (language == LANG_ADDON)
+			data << addonPrefix;
+		break;
+	}
+
+	data << uint32(message.length() + 1);
+	data << message;
+	data << uint8(chatTag);
+
+	if (chatType == CHAT_MSG_ACHIEVEMENT || chatType == CHAT_MSG_GUILD_ACHIEVEMENT)
+		data << uint32(achievementId);
+	else if (chatType == CHAT_MSG_RAID_BOSS_WHISPER || chatType == CHAT_MSG_RAID_BOSS_EMOTE)
+	{
+		data << float(0.0f);                        // Display time in middle of the screen (in seconds), defaults to 10 if not set (cannot be below 1)
+		data << uint8(0);                           // Hide in chat frame (only shows in middle of the screen)
+	}
+
+	return receiverGUIDPos;
+}
+
+size_t ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg chatType, Language language, WorldObject const* sender, WorldObject const* receiver, std::string const& message,
+	uint32 achievementId /*= 0*/, std::string const& channelName /*= ""*/, LocaleConstant locale /*= DEFAULT_LOCALE*/, std::string const& addonPrefix /*= ""*/)
+{
+	ObjectGuid senderGUID;
+	std::string senderName = "";
+	uint8 chatTag = 0;
+	bool gmMessage = false;
+	ObjectGuid receiverGUID;
+	std::string receiverName = "";
+	if (sender)
+	{
+		senderGUID = sender->GetGUID();
+		senderName = sender->GetNameForLocaleIdx(locale);
+		if (Player const* playerSender = sender->ToPlayer())
+		{
+			chatTag = playerSender->GetChatFlags();
+			gmMessage = playerSender->GetSession()->HasPermission(rbac::RBAC_PERM_COMMAND_GM_CHAT);
+		}
+	}
+
+	if (receiver)
+	{
+		receiverGUID = receiver->GetGUID();
+		receiverName = receiver->GetNameForLocaleIdx(locale);
+	}
+
+	return BuildChatPacket(data, chatType, language, senderGUID, receiverGUID, message, chatTag, senderName, receiverName, achievementId, gmMessage, channelName, addonPrefix);
 }
 
 bool ChatHandler::ShowHelpForCommand(ChatCommand* table, const char* cmd)

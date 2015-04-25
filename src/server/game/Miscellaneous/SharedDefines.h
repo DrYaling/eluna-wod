@@ -23,6 +23,12 @@
 #include "DetourNavMesh.h"
 #include <cassert>
 
+#ifdef ELUNA
+#define TRINITY 1
+#define WOD 1
+#define CATA WOD
+#endif
+
 enum SpellEffIndex
 {
     EFFECT_0 = 0,

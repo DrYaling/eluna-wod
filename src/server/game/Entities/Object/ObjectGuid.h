@@ -143,6 +143,13 @@ class ObjectGuid
         ObjectGuid() : _low(0), _high(0) { }
         ObjectGuid(ObjectGuid const&) = default;
 
+		explicit ObjectGuid(uint64 guid)  { _high = guid; _low = (uint64)0; }
+		ObjectGuid(uint64 high, uint64 low) : _low(low), _high(high) { }
+		ObjectGuid(HighGuid hi, uint32 entry, uint32 counter) 
+		{ 
+			_low = counter ? uint64(counter) | (uint64(entry) << 32) | (uint64(hi) << ((hi == HighGuid::Corpse || hi == HighGuid::AreaTrigger) ? 48 : 52)) : 0;
+		}
+
         PackedGuidReader ReadAsPacked() { return PackedGuidReader(*this); }
 
         std::vector<uint8> GetRawValue() const;
@@ -253,7 +260,6 @@ class ObjectGuid
 
         bool HasEntry() const { return HasEntry(GetHigh()); }
 
-        ObjectGuid(uint64 high, uint64 low) : _low(low), _high(high) { }
         explicit ObjectGuid(uint32 const&) = delete;                 // no implementation, used to catch wrong type assignment
 
         uint64 _low;

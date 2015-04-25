@@ -40,6 +40,9 @@
 #include "ScriptMgr.h"
 #include "AccountMgr.h"
 #include "ChatPackets.h"
+#ifdef ELUNA
+#include "LuaEngine.h"
+#endif
 
 void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage& chatMessage)
 {
@@ -219,12 +222,30 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 return;
             }
 
-            if (type == CHAT_MSG_SAY)
-                sender->Say(msg, Language(lang));
-            else if (type == CHAT_MSG_EMOTE)
-                sender->TextEmote(msg);
-            else if (type == CHAT_MSG_YELL)
-                sender->Yell(msg, Language(lang));
+			if (type == CHAT_MSG_SAY)
+			{
+#ifdef ELUNA
+				if (!sEluna->OnChat(sender, type, lang, msg))
+					return;
+#endif
+				sender->Say(msg, Language(lang));
+			}
+				else if (type == CHAT_MSG_EMOTE)
+				{
+#ifdef ELUNA
+					if (!sEluna->OnChat(sender, type, LANG_UNIVERSAL, msg))
+						return;
+#endif
+					sender->TextEmote(msg);
+				}
+				else if (type == CHAT_MSG_YELL)
+				{
+#ifdef ELUNA
+					if (!sEluna->OnChat(sender, type, lang, msg))
+						return;
+#endif
+					sender->Yell(msg, Language(lang));
+				}
             break;
         }
         case CHAT_MSG_WHISPER:
@@ -268,6 +289,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 (HasPermission(rbac::RBAC_PERM_CAN_FILTER_WHISPERS) && !sender->isAcceptWhispers() && !sender->IsInWhisperWhiteList(receiver->GetGUID())))
                 sender->AddWhisperWhiteList(receiver->GetGUID());
 
+#ifdef ELUNA
+            if (!sEluna->OnChat(GetPlayer(), type, lang, msg, receiver))
+                return;
+#endif
             GetPlayer()->Whisper(msg, Language(lang), receiver);
             break;
         }
@@ -286,6 +311,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 type = CHAT_MSG_PARTY_LEADER;
 
             sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, group);
+#ifdef ELUNA
+            if(!sEluna->OnChat(sender, type, lang, msg, group))
+                return;
+#endif
 
             WorldPackets::Chat::Chat packet;
             packet.Initalize(ChatMsg(type), Language(lang), sender, nullptr, msg);
@@ -299,6 +328,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 if (Guild* guild = sGuildMgr->GetGuildById(GetPlayer()->GetGuildId()))
                 {
                     sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, guild);
+#ifdef ELUNA
+                    if(!sEluna->OnChat(sender, type, lang, msg, guild))
+                        return;
+#endif
 
                     guild->BroadcastToGuild(this, false, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
                 }
@@ -312,6 +345,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 if (Guild* guild = sGuildMgr->GetGuildById(GetPlayer()->GetGuildId()))
                 {
                     sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, guild);
+#ifdef ELUNA
+                    if(!sEluna->OnChat(sender, type, lang, msg, guild))
+                        return;
+#endif
 
                     guild->BroadcastToGuild(this, true, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
                 }
@@ -328,6 +365,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 type = CHAT_MSG_RAID_LEADER;
 
             sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, group);
+#ifdef ELUNA
+            if(!sEluna->OnChat(sender, type, lang, msg, group))
+                return;
+#endif
 
             WorldPackets::Chat::Chat packet;
             packet.Initalize(ChatMsg(type), Language(lang), sender, nullptr, msg);
@@ -341,13 +382,40 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 return;
 
             sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, group);
+#ifdef ELUNA
+            if(!sEluna->OnChat(sender, type, lang, msg, group))
+                return;
+#endif
 
             WorldPackets::Chat::Chat packet;
             //in battleground, raid warning is sent only to players in battleground - code is ok
             packet.Initalize(CHAT_MSG_RAID_WARNING, Language(lang), sender, NULL, msg);
             group->BroadcastPacket(packet.Write(), false);
             break;
-        }
+        }  
+		/*
+		case CHAT_MSG_BATTLEGROUND:
+        case CHAT_MSG_BATTLEGROUND_LEADER:
+        {
+            // battleground raid is always in Player->GetGroup(), never in GetOriginalGroup()
+            Group* group = GetPlayer()->GetGroup();
+            if (!group || !group->isBGGroup())
+                return;
+
+            if (group->IsLeader(GetPlayer()->GetGUID()))
+                type = CHAT_MSG_BATTLEGROUND_LEADER;
+
+            sScriptMgr->OnPlayerChat(GetPlayer(), type, lang, msg, group);
+#ifdef ELUNA
+            if(!sEluna->OnChat(sender, type, lang, msg, group))
+                return;
+#endif
+
+            WorldPacket data;
+            ChatHandler::BuildChatPacket(data, ChatMsg(type), Language(lang), sender, NULL, msg);
+            group->BroadcastPacket(&data, false);
+            break;
+        }*/
         case CHAT_MSG_CHANNEL:
         {
             if (!HasPermission(rbac::RBAC_PERM_SKIP_CHECK_CHAT_CHANNEL_REQ))
@@ -364,6 +432,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 if (Channel* chn = cMgr->GetChannel(target, sender))
                 {
                     sScriptMgr->OnPlayerChat(sender, type, lang, msg, chn);
+#ifdef ELUNA
+                    if (!sEluna->OnChat(sender, type, lang, msg, chn))
+                        return;
+#endif
                     chn->Say(sender->GetGUID(), msg.c_str(), lang);
                 }
             }
@@ -383,6 +455,10 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
             WorldPackets::Chat::Chat packet;
             packet.Initalize(ChatMsg(type), Language(lang), sender, nullptr, msg);
             group->BroadcastPacket(packet.Write(), false);
+#ifdef ELUNA
+            if (!sEluna->OnChat(GetPlayer(), type, lang, msg))
+                return;
+#endif
             break;
         }
         default:
